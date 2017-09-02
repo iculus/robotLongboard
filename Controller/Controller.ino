@@ -20,7 +20,8 @@ Adafruit_FeatherOLED oled = Adafruit_FeatherOLED();
 #define RFM95_CS 8
 #define RFM95_RST 4
 #define RFM95_INT 3
-#define RF95_FREQ 915.0
+//915.0
+#define RF95_FREQ 434.0
 
 #define SERVOMIN  150 // this is the 'minimum' pulse length count (out of 4096)
 #define SERVOMAX  480 // this is the 'maximum' pulse length count (out of 4096)

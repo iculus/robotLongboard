@@ -7,7 +7,7 @@
 Adafruit_PWMServoDriver pwm = Adafruit_PWMServoDriver(0x40);
 #define SERVOMIN  150 // this is the 'minimum' pulse length count (out of 4096)
 #define SERVOMAX  480 // this is the 'maximum' pulse length count (out of 4096)
-uint8_t servonum = 0;
+uint8_t servonum = 7;
 
 //for feather m0  
 #define RFM95_CS 8
@@ -24,8 +24,8 @@ unsigned long newtime;
 unsigned long oldtime = 0;
 long vel;
 
-// Change to 434.0 or other frequency, must match RX's freq!
-#define RF95_FREQ 915.0
+// Change to 434.0 or 915.0 other frequency, must match RX's freq!
+#define RF95_FREQ 434.0
 
 // Singleton instance of the radio driver
 RH_RF95 rf95(RFM95_CS, RFM95_INT);
