@@ -136,7 +136,6 @@ void loop()
       Serial.println("Receive failed");
     }
   }
-  pwm.setPWM(servonum, 0, 150);
 }
 
 void doEncoder()
