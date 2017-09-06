@@ -8,13 +8,11 @@
 
 Adafruit_FeatherOLED oled = Adafruit_FeatherOLED();
 
-
 //oled
 #define BUTTON_A 9
 #define BUTTON_B 6
 #define BUTTON_C 5
 #define LED      13
-
 
 //rx
 #define RFM95_CS 8
@@ -39,23 +37,15 @@ void setup() {
   digitalWrite(RFM95_RST, HIGH);
   
   Serial.begin(9600);
-  // by default, we'll generate the high voltage from the 3.3v line internally! (neat!)
   oled.begin(SSD1306_SWITCHCAPVCC, 0x3C);  // initialize with the I2C addr 0x3C (for the 128x32)
   oled.setBatteryVisible(true);
-  // init done
   Serial.println("OLED begun");
   
-  // Show image buffer on the display hardware.
-  // Since the buffer is intialized with an Adafruit splashscreen
-  // internally, this will display the splashscreen.
-  //display.display();
   delay(1000);
 
   // Clear the buffer.
   oled.clearDisplay();
   oled.display();
-  
-  Serial.println("IO test");
 
   pinMode(BUTTON_A, INPUT_PULLUP);
   pinMode(BUTTON_B, INPUT_PULLUP);
@@ -95,7 +85,13 @@ void setup() {
 
 int16_t packetnum = 0;  // packet counter, we increment per xmission
 
-int offset = 0;
+int offset = -5;
+int accOffset = 0;
+int velocityNow = 0;
+int velocityFuture = 0;
+int pulseLenMid = 390 + offset;
+int accStart = 5;
+int accOffsetMin = -accStart+1;
 
 void loop() {
   
@@ -111,33 +107,60 @@ void loop() {
   int xVal = analogRead(A0);
   int yVal = analogRead(A1);
   int button = digitalRead(12);
-  
+
+  //map x val to servo min and max
   uint16_t pulselen = map(xVal,-25,1000,SERVOMIN,SERVOMAX);
   pulselen = pulselen+offset;
 
+  //set y val to right increase accel, left decrease
 
-  if (pulselen >= SERVOMAX){
-    pulselen = SERVOMAX;
-  }
+  int yInc = 5;
+  int yDec = -5;
+  int yValSimple = map(yVal,5,1023,yDec,yInc);
+  if (yValSimple == yInc){accOffset += 1;}
+  if (yValSimple == yDec && accOffset > accOffsetMin){accOffset -= 1;}
   
-  if (pulselen <= SERVOMIN){
-    pulselen = SERVOMIN;
+  //set servo limits to prevent unknown conditinos
+  if (pulselen >= SERVOMAX){pulselen = SERVOMAX;}
+  if (pulselen <= SERVOMIN){pulselen = SERVOMIN;}
+
+  //make velocity % map
+  int percent = map(pulselen,SERVOMIN+offset,SERVOMAX+offset,0,100);
+
+  //add acceleration
+  int timeNow = micros();
+  int acceleration = accStart + accOffset;
+  velocityFuture = pulselen;
+  if (velocityFuture <= velocityNow || velocityFuture < pulseLenMid){
+    velocityNow = velocityFuture;
+  }
+  if (velocityFuture > velocityNow && velocityFuture >= pulseLenMid){
+    velocityNow += acceleration;
   }
 
-  int percent = map(pulselen,SERVOMIN+offset,SERVOMAX+offset,0,100);
-  oled.print(percent);
-  oled.print('\t');
-  oled.print(pulselen);
-
+  //display results
+  oled.print("Vel  :  ");
+  //oled.print('\t');
+  oled.println(percent);
+  //oled.print('\t');
+  //oled.print(pulselen);
+  //oled.print('\t');
+  oled.print("acc  :  ");
+  //oled.print('"\t");
+  oled.println(acceleration);
+  /*Serial.print(percent);
+  Serial.print('\t');
+  Serial.print(pulselen);
+  Serial.print('\t');
+  Serial.println(velocityNow);
+  */
   //lora
-
   //const int radioLen = 20;
   char radiopacket[20] = "Radio-0000#        ";
-  itoa(pulselen, radiopacket+13, 10);
-  
+  itoa(velocityNow, radiopacket+13, 10);
   radiopacket[19] = 0;
 
-  Serial.println(radiopacket);
+  //Serial.println(radiopacket);
   
   rf95.send((uint8_t *)radiopacket, 20);
   rf95.waitPacketSent();
@@ -150,16 +173,18 @@ void loop() {
   { 
     // Should be a reply message for us now   
     if (rf95.recv(buf, &len))
-   {  
-      oled.print ("YES!!");  
+    {  
+      Serial.println((char*)buf);
+      oled.print("Conn :  ");
+      //oled.print("\t");
+      oled.print ("YES!!");
     }
-    else
-    {                                          
-      Serial.println("Receive failed");
-    }
+    else {Serial.println("Receive failed");}
   }
   else
   {
+    oled.print("Conn :  ");
+    oled.print("\t");
     oled.print ("nope");
   }
 
