@@ -23,6 +23,9 @@ Adafruit_FeatherOLED oled = Adafruit_FeatherOLED();
 
 #define SERVOMIN  150 // this is the 'minimum' pulse length count (out of 4096)
 #define SERVOMAX  600 // this is the 'maximum' pulse length count (out of 4096)
+const int servoRange = SERVOMAX-SERVOMIN;
+long int lookup[servoRange];
+long int lookupScaled[servoRange];
 
 // Singleton instance of the radio driver
 RH_RF95 rf95(RFM95_CS, RFM95_INT);
@@ -81,7 +84,39 @@ void setup() {
   // If you are using RFM95/96/97/98 modules which uses the PA_BOOST transmitter pin, then 
   // you can set transmitter powers from 5 to 23 dBm:
   rf95.setTxPower(23, false);
+
+  //build a conversion table
+  for (int i = -servoRange/2; i<=servoRange/2; i++){
+    int numtoinput = i*i;
+    //correct fot the negative half
+    if(i<0){
+      numtoinput = numtoinput*-1;
+    }
+    lookup[i+servoRange/2] = numtoinput;
+    Serial.print(i);
+    Serial.print('\t');
+    Serial.print (i+servoRange/2);
+    Serial.print('\t');
+    Serial.println(lookup[i+servoRange/2]);
+    
+  } 
+
+  int maxLookup = lookup[servoRange];
+  int minLookup = lookup[0];
+
+  Serial.println();
+  Serial.println(minLookup);
+  Serial.print("\t");
+  Serial.println(maxLookup);
+  
+
+  for (int j = 0; j<=servoRange; j++){
+    lookupScaled[j] = map(lookup[j],minLookup,maxLookup,SERVOMIN,SERVOMAX);
+    Serial.println(lookupScaled[j]);
+  }
 }
+
+
 
 int16_t packetnum = 0;  // packet counter, we increment per xmission
 
@@ -109,11 +144,10 @@ void loop() {
   int button = digitalRead(12);
 
   //map x val to servo min and max
-  uint16_t pulselen = map(xVal,-25,1000,SERVOMIN,SERVOMAX);
+  uint16_t pulselen = map(xVal,0,1023,SERVOMIN,SERVOMAX);
   pulselen = pulselen+offset;
 
   //set y val to right increase accel, left decrease
-
   int yInc = 5;
   int yDec = -5;
   int yValSimple = map(yVal,5,1023,yDec,yInc);
@@ -127,24 +161,35 @@ void loop() {
   //make velocity % map
   int percent = map(pulselen,SERVOMIN+offset,SERVOMAX+offset,0,100);
 
-  //add acceleration
-  int timeNow = micros();
+  //add scaling
+  bool scaleGo = true;
+  int velThen = pulselen;
+  if (scaleGo == true){
+    int selection = map(pulselen-offset,SERVOMIN,SERVOMAX,0,servoRange);
+    velocityNow = lookupScaled[selection]+offset;
+  }
+  
+  //add acceleration do not use with scaling
+  bool accGo = false;
   int acceleration = accStart + accOffset;
-  velocityFuture = pulselen;
-  if (velocityFuture <= velocityNow || velocityFuture < pulseLenMid){
-    velocityNow = velocityFuture;
+  if (accGo == true){
+    velocityFuture = pulselen;
+    if (velocityFuture <= velocityNow || velocityFuture < pulseLenMid){
+      velocityNow = velocityFuture;
+    }
+    if (velocityFuture > velocityNow && velocityFuture >= pulseLenMid){
+      velocityNow += acceleration;
+    }
   }
-  if (velocityFuture > velocityNow && velocityFuture >= pulseLenMid){
-    velocityNow += acceleration;
-  }
-
+  
   //display results
   oled.print("Vel  :  ");
   //oled.print('\t');
-  oled.println(percent);
-  //oled.print('\t');
-  //oled.print(pulselen);
-  //oled.print('\t');
+  //oled.println(percent);
+  oled.print('\t');
+  oled.print(velocityNow);
+  oled.print('\t');
+  oled.println(velThen);
   oled.print("acc  :  ");
   //oled.print('"\t");
   oled.println(acceleration);
@@ -174,7 +219,7 @@ void loop() {
     // Should be a reply message for us now   
     if (rf95.recv(buf, &len))
     {  
-      Serial.println((char*)buf);
+      //Serial.println((char*)buf);
       oled.print("Conn :  ");
       //oled.print("\t");
       oled.print ("YES!!");
