@@ -1,7 +1,15 @@
 
 #include <SPI.h>
-#include <RH_RF95.h>
 
+//something something change a timer in RH_ASK.cpp
+//https://forum.arduino.cc/index.php?topic=306685.0
+
+#include <Adafruit_NeoPixel_ZeroDMA.h>
+
+#define PIN        A5
+#define NUM_PIXELS 24
+Adafruit_NeoPixel_ZeroDMA strip(NUM_PIXELS, PIN, NEO_GRB);
+#include <RH_RF95.h>
 #include <Wire.h>
 #include <Adafruit_PWMServoDriver.h>
 Adafruit_PWMServoDriver pwm = Adafruit_PWMServoDriver(0x40);
@@ -79,8 +87,17 @@ void setup()
   pinMode(encoder0PinB, INPUT);
   digitalWrite(encoder0PinB, HIGH);       // turn on pullup resistor
   attachInterrupt(11, doEncoder, RISING);  // encoDER ON PIN 2
+  
+  strip.begin();
+  strip.setBrightness(32);
+  strip.show();
+  
 }
 
+
+uint16_t i;
+// Rainbow cycle
+uint32_t elapsed, t, startTime = micros();
 void loop()
 {
   if (rf95.available())
@@ -91,6 +108,22 @@ void loop()
     
     if (rf95.recv(buf, &len))
     {
+      t       = micros();
+      elapsed = t - startTime;
+      Serial.print(elapsed);
+      Serial.print('\t');
+      Serial.print(t);
+      Serial.print('\t');
+      Serial.println(startTime);
+      //if(elapsed > 5000000) break; // Run for 5 seconds
+      for(i=0; i<strip.numPixels(); i++) {
+        strip.setPixelColor(i, Wheel((uint8_t)(
+          (elapsed * 256 / 1000000) + i * 256 / strip.numPixels())));
+      }
+      //if(elapsed >= 1000000){
+      //  startTime = micros();
+      //}
+      strip.show();
       digitalWrite(LED, HIGH);
       //RH_RF95::printBuffer("Received: ", buf, len);
       //Serial.print("Got: ");
@@ -146,3 +179,17 @@ void doEncoder()
     encoder0Pos++;
   }
 }
+
+uint32_t Wheel(byte WheelPos) {
+  WheelPos = 255 - WheelPos;
+  if(WheelPos < 85) {
+    return strip.Color(255 - WheelPos * 3, 0, WheelPos * 3);
+  }
+  if(WheelPos < 170) {
+    WheelPos -= 85;
+    return strip.Color(0, WheelPos * 3, 255 - WheelPos * 3);
+  }
+  WheelPos -= 170;
+  return strip.Color(WheelPos * 3, 255 - WheelPos * 3, 0);
+}
+
