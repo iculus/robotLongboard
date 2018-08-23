@@ -1,45 +1,36 @@
+/********************************************************************************
+ * Robot Longboard by Mike Soroka                                               *
+ * Updated 08/23/18                                                             *
+ * This version has output for LEDs and RX/TX with LORA on M0 SAMD21G18 Feather *
+ * Adding encoder feedback                                                      *
+ * Adding PID with encoder feedback                                             *
+ ********************************************************************************/
 
-#include <SPI.h>
-
-//something something change a timer in RH_ASK.cpp
-//https://forum.arduino.cc/index.php?topic=306685.0
-
-#include <Adafruit_NeoPixel_ZeroDMA.h>
-
-#define PIN        A5
+//Pin Defs and Consts 
+#define NeoPIN A5
 #define NUM_PIXELS 24
-Adafruit_NeoPixel_ZeroDMA strip(NUM_PIXELS, PIN, NEO_GRB);
-#include <RH_RF95.h>
-#include <Wire.h>
-#include <Adafruit_PWMServoDriver.h>
-Adafruit_PWMServoDriver pwm = Adafruit_PWMServoDriver(0x40);
-#define SERVOMIN  150 // this is the 'minimum' pulse length count (out of 4096)
-#define SERVOMAX  480 // this is the 'maximum' pulse length count (out of 4096)
+#define SERVOMIN  150 // this is the 'minimum' pulse length
+#define SERVOMAX  480 // this is the 'maximum' pulse length
 uint8_t servonum = 7;
-
-//for feather m0  
+#define LED 13
 #define RFM95_CS 8
 #define RFM95_RST 4
 #define RFM95_INT 3
+#define RF95_FREQ 434.0 //match RX's freq!
 
-//for encoder
-#define encoder0PinA  11
-#define encoder0PinB  12
-volatile long encoder0Pos=0;
-long newposition;
-long oldposition = 0;
-unsigned long newtime;
-unsigned long oldtime = 0;
-long vel;
+//Notes on timers
+//something something change a timer in RH_ASK.cpp
+//https://forum.arduino.cc/index.php?topic=306685.0
 
-// Change to 434.0 or 915.0 other frequency, must match RX's freq!
-#define RF95_FREQ 434.0
+#include <SPI.h>
+#include <Adafruit_NeoPixel_ZeroDMA.h>
+#include <RH_RF95.h>
+#include <Wire.h>
+#include <Adafruit_PWMServoDriver.h>
 
-// Singleton instance of the radio driver
-RH_RF95 rf95(RFM95_CS, RFM95_INT);
-
-// Blinky on receipt
-#define LED 13
+Adafruit_NeoPixel_ZeroDMA strip(NUM_PIXELS, NeoPIN, NEO_GRB);
+Adafruit_PWMServoDriver pwm = Adafruit_PWMServoDriver(0x40);
+RH_RF95 rf95(RFM95_CS, RFM95_INT); 
 
 void setup() 
 {
@@ -82,21 +73,13 @@ void setup()
   // you can set transmitter powers from 5 to 23 dBm:
   rf95.setTxPower(23, false);
 
-  pinMode(encoder0PinA, INPUT);
-  digitalWrite(encoder0PinA, HIGH);       // turn on pullup resistor
-  pinMode(encoder0PinB, INPUT);
-  digitalWrite(encoder0PinB, HIGH);       // turn on pullup resistor
-  attachInterrupt(11, doEncoder, RISING);  // encoDER ON PIN 2
-  
   strip.begin();
   strip.setBrightness(32);
   strip.show();
-  
 }
 
 
 uint16_t i;
-// Rainbow cycle
 uint32_t elapsed, t, startTime = micros();
 void loop()
 {
@@ -108,7 +91,7 @@ void loop()
     
     if (rf95.recv(buf, &len))
     {
-      t       = micros();
+      t = micros();
       elapsed = t - startTime;
       Serial.print(elapsed);
       Serial.print('\t');
@@ -120,10 +103,8 @@ void loop()
         strip.setPixelColor(i, Wheel((uint8_t)(
           (elapsed * 256 / 1000000) + i * 256 / strip.numPixels())));
       }
-      //if(elapsed >= 1000000){
-      //  startTime = micros();
-      //}
       strip.show();
+      
       digitalWrite(LED, HIGH);
       //RH_RF95::printBuffer("Received: ", buf, len);
       //Serial.print("Got: ");
@@ -141,18 +122,9 @@ void loop()
       //uint16_t pulselen = map(numsConvert,0,1023,SERVOMIN,SERVOMAX);
       uint16_t pulselen = numsConvert;
       Serial.println(pulselen);
-
-      newposition = encoder0Pos;
-      newtime = millis();
-      vel = (newposition-oldposition) * 1000 /(newtime-oldtime);
-      Serial.print ("speed = ");
-      Serial.println (vel);
-      oldposition = newposition;
-      oldtime = newtime;
-      
+     
       pwm.setPWM(servonum, 0, pulselen);
-      
-
+ 
       //Serial.print("RSSI: ");
       //Serial.println(rf95.lastRssi(), DEC);
       //delay(10);
@@ -168,15 +140,6 @@ void loop()
     {
       Serial.println("Receive failed");
     }
-  }
-}
-
-void doEncoder()
-{
-  if (digitalRead(encoder0PinA) == digitalRead(encoder0PinB)) {
-    encoder0Pos++;
-  } else {
-    encoder0Pos++;
   }
 }
 
