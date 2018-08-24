@@ -120,7 +120,7 @@ void setup() {
 
 int16_t packetnum = 0;  // packet counter, we increment per xmission
 
-int offset = -5;
+int offset = -1;
 int accOffset = 0;
 int velocityNow = 0;
 int velocityFuture = 0;
@@ -222,7 +222,8 @@ void loop() {
       //Serial.println((char*)buf);
       oled.print("Conn :  ");
       //oled.print("\t");
-      oled.print ("YES!!");
+      //oled.print ("YES!!");
+      oled.print((char*)buf);
     }
     else {Serial.println("Receive failed");}
   }
