@@ -1,9 +1,9 @@
 /********************************************************************************
  * Robot Longboard by Mike Soroka                                               *
- * Updated 08/23/18                                                             *
+ * Updated 08/24/18                                                             *
  * This version has output for LEDs and RX/TX with LORA on M0 SAMD21G18 Feather *
- * Adding encoder feedback                                                      *
- * Adding PID with encoder feedback                                             *
+ * With encoder feedback                                                        *
+ * With coast mode                                                              *
  ********************************************************************************/
 
 //Pin Defs and Consts 
@@ -22,7 +22,6 @@ uint8_t servonum = 7;
 //something something change a timer in RH_ASK.cpp
 //https://forum.arduino.cc/index.php?topic=306685.0
 
-#include <PID_v1.h>
 #include <SPI.h>
 #include <Adafruit_NeoPixel_ZeroDMA.h>
 #include <RH_RF95.h>
@@ -33,11 +32,6 @@ Adafruit_NeoPixel_ZeroDMA strip(NUM_PIXELS, NeoPIN, NEO_GRB);
 Adafruit_PWMServoDriver pwm = Adafruit_PWMServoDriver(0x40);
 RH_RF95 rf95(RFM95_CS, RFM95_INT); 
 
-
-double Setpoint, Input, Output;
-double Kp=2.5, Ki=0, Kd=1;
-PID myPID(&Input, &Output, &Setpoint, Kp, Ki, Kd, DIRECT);
-
 //for hall effect
 volatile byte half_revolutions;
 unsigned int rpm;
@@ -46,8 +40,6 @@ unsigned long timeold;
 
 void setup() 
 {
-  myPID.SetMode(AUTOMATIC);
-
   //hall
   attachInterrupt(digitalPinToInterrupt(hallPin), magnet_detect, RISING);//Initialize the intterrupt pin (Arduino digital pin 2)
   half_revolutions = 0;
@@ -109,7 +101,7 @@ void loop()
   if (rf95.available())
   {
     //hall
-    if (millis()-updateTime > 300){
+    if (millis()-updateTime > 200){
       rpm = 0;
     }
     
@@ -147,17 +139,10 @@ void loop()
       //Serial.println((char*)buf);
       
       String gotThis = (char*)buf;
-      //Serial.println(gotThis);
       int hashLocation = gotThis.indexOf('#');
-      //Serial.println(hashLocation);
       String nums = gotThis.substring(hashLocation+1);
-      //Serial.println(nums);
       int numsConvert = nums.toInt();
-      //Serial.println(numsConvert);
-
-      //uint16_t setpoint = map(numsConvert,0,1023,SERVOMIN,SERVOMAX);
       uint16_t setpoint = numsConvert;
-      //Serial.println(setpoint);
 
       //from controller servo min = 150 max = 595 mid = 390
       //current rpm range 0::10,500
@@ -165,30 +150,50 @@ void loop()
       //compare rpm to setpoint
       int rpmConvert = map(rpm,0,10500,374,599);
 
-      //Setpoint = setpoint;
-      //Input = rpmConvert;
-      //myPID.Compute();
+      //make states (2) command and no command
+      //sub states control (brake and go) Coast (movement and stationary)
+      //deadband from controller set here
+      int deadbandMin = 360;
+      int deadbandMax = 380;
+      bool coast = false;
+      bool control = false;
+      bool brake = false;
+      bool go = false;
+      bool movement = false;
+      bool stationary = false;
 
-      //Output = map(Output,0,255,390,599);
-      
-      //command = Output;
-      //Serial.println(command);
+      if (setpoint >= deadbandMin && setpoint <= deadbandMax) {coast = true; control = false;}
+      if (setpoint < deadbandMin || setpoint > deadbandMax) {coast = false; control = true;}
+      if (control && not coast) {
+        if (setpoint > deadbandMax) {go = true; brake = false;}
+        if (setpoint < deadbandMin) {go = false; brake = true;}
+      }
+      int range = 2;
+      if (not control && coast){
+        if (rpmConvert > 374+range) {movement = true; stationary = false;}
+        if (rpmConvert <= 374+range) {movement = false; stationary = true;}
+      }
+
+      Serial.print("control ");Serial.print('\t');Serial.print(control);Serial.print('\t');
+      Serial.print(" coast ");Serial.print('\t');Serial.print(coast);Serial.print('\t');
+      Serial.print(" brake ");Serial.print('\t');Serial.print(brake);Serial.print('\t');
+      Serial.print(" go ");Serial.print('\t');Serial.print(go);Serial.print('\t');
+      Serial.print(" Move ");Serial.print('\t');Serial.print(movement);Serial.print('\t');
+      Serial.print(" Stationary ");Serial.print('\t');Serial.print(stationary);
+    
       int error = setpoint - rpmConvert;
-      int maxError = 600-390; //210
 
-      if (command < 390){command = 390;}
-      if (error > 0 && setpoint > 390){command = command +5;}
-      if (error <= -3) {command = setpoint;}
-      if (setpoint <=390) {command = setpoint;}
-      if (command >= 600) {command = 600;}
+      if (coast){command = rpmConvert;}
+      if (go){
+        if (command < setpoint){command = command +5;}
+        if (command >= setpoint) {command = setpoint;}
+      }
+      if (brake) {command = setpoint;}
 
-      Serial.print(command);
-      Serial.print('\t');
-      Serial.print(setpoint);
-      Serial.print('\t');
-      Serial.println(error);
-                 
-      pwm.setPWM(servonum, 0, command);
+      Serial.print('\t');Serial.print(command);Serial.print('\t');Serial.print(setpoint);Serial.print('\t');Serial.println(error);
+      
+      if (control){pwm.setPWM(servonum, 0, command);}
+      if (coast) {pwm.setPWM(servonum, 0, 374);}
  
       //Serial.print("RSSI: ");
       //Serial.println(rf95.lastRssi(), DEC);
@@ -226,5 +231,4 @@ uint32_t Wheel(byte WheelPos) {
  {
    half_revolutions++;
    updateTime = millis();
-   //Serial.println("detect");
  }
