@@ -13,13 +13,15 @@ Adafruit_FeatherOLED oled = Adafruit_FeatherOLED();
 #define BUTTON_B 6
 #define BUTTON_C 5
 #define LED      13
+#define select   12
 
 //rx
 #define RFM95_CS 8
 #define RFM95_RST 4
 #define RFM95_INT 3
 //915.0
-#define RF95_FREQ 434.0
+//#define RF95_FREQ 434.0
+#define RF95_FREQ 915.0
 
 #define SERVOMIN  150 // this is the 'minimum' pulse length count (out of 4096)
 #define SERVOMAX  600 // this is the 'maximum' pulse length count (out of 4096)
@@ -39,12 +41,14 @@ void setup() {
   pinMode(RFM95_RST, OUTPUT);
   digitalWrite(RFM95_RST, HIGH);
   
+  pinMode(LED,OUTPUT);
+  digitalWrite(LED,LOW);
   Serial.begin(9600);
   oled.begin(SSD1306_SWITCHCAPVCC, 0x3C);  // initialize with the I2C addr 0x3C (for the 128x32)
   oled.setBatteryVisible(true);
   Serial.println("OLED begun");
   
-  delay(1000);
+  delay(100);
 
   // Clear the buffer.
   oled.clearDisplay();
@@ -63,7 +67,7 @@ void setup() {
 
   pinMode(A0, INPUT);
   pinMode(A1, INPUT);
-  pinMode(12, INPUT);
+  pinMode(select, INPUT_PULLUP);
 
   while (!rf95.init()) {
     Serial.println("LoRa radio init failed");
@@ -141,7 +145,9 @@ void loop() {
   //data
   int xVal = analogRead(A0);
   int yVal = analogRead(A1);
-  int button = digitalRead(12);
+  int button = digitalRead(select);
+
+  Serial.println(xVal);
 
   //map x val to servo min and max
   uint16_t pulselen = map(xVal,0,1023,SERVOMIN,SERVOMAX);
@@ -181,6 +187,9 @@ void loop() {
       velocityNow += acceleration;
     }
   }
+
+  //test can button*vel now send reliable info
+  velocityNow = velocityNow * button;
   
   //display results
   oled.print("Vel  :  ");
@@ -190,9 +199,9 @@ void loop() {
   oled.print(velocityNow);
   oled.print('\t');
   oled.println(velThen);
-  oled.print("acc  :  ");
+  oled.print("brake  :  ");
   //oled.print('"\t");
-  oled.println(acceleration);
+  oled.println(button);
   /*Serial.print(percent);
   Serial.print('\t');
   Serial.print(pulselen);
@@ -213,22 +222,25 @@ void loop() {
   // Now wait for a reply
   uint8_t buf[RH_RF95_MAX_MESSAGE_LEN];
   uint8_t len = sizeof(buf);
-  
-  if (rf95.waitAvailableTimeout(100))
+
+  //100
+  if (rf95.waitAvailableTimeout(80))
   { 
     // Should be a reply message for us now   
     if (rf95.recv(buf, &len))
     {  
       //Serial.println((char*)buf);
+      digitalWrite(LED,HIGH);
       oled.print("Conn :  ");
       //oled.print("\t");
       //oled.print ("YES!!");
       oled.print((char*)buf);
     }
-    else {Serial.println("Receive failed");}
+    else {Serial.println("Receive failed"); }
   }
   else
   {
+    digitalWrite(LED,LOW);
     oled.print("Conn :  ");
     oled.print("\t");
     oled.print ("nope");
@@ -245,9 +257,9 @@ void loop() {
 #define VBATPIN A7
 
 float getBatteryVoltage() {
-
+  digitalWrite (BUTTON_A, LOW);
   float measuredvbat = analogRead(VBATPIN);
-
+  digitalWrite (BUTTON_A, HIGH);
   measuredvbat *= 2;    // we divided by 2, so multiply back
   measuredvbat *= 3.3;  // Multiply by 3.3V, our reference voltage
   measuredvbat /= 1024; // convert to voltage
