@@ -1,6 +1,6 @@
 /********************************************************************************
  * Robot Longboard by Mike Soroka                                               *
- * Updated 08/24/18                                                             *
+ * Updated 08/28/18                                                             *
  * This version has output for LEDs and RX/TX with LORA on M0 SAMD21G18 Feather *
  * With encoder feedback                                                        *
  * With coast mode                                                              *
@@ -11,12 +11,16 @@
 #define NUM_PIXELS 24
 #define SERVOMIN  150 // this is the 'minimum' pulse length
 #define SERVOMAX  480 // this is the 'maximum' pulse length
-uint8_t servonum = 7;
+int servonum = 7;
 #define LED 13
 #define RFM95_CS 8
 #define RFM95_RST 4
 #define RFM95_INT 3
-#define RF95_FREQ 434.0 //match RX's freq!
+//#define RF95_FREQ 434.0 //match RX's freq!
+#define RF95_FREQ 915.0 //match RX's freq!
+#define hallPin 12
+
+
 
 //Notes on timers
 //something something change a timer in RH_ASK.cpp
@@ -36,12 +40,39 @@ RH_RF95 rf95(RFM95_CS, RFM95_INT);
 volatile byte half_revolutions;
 unsigned int rpm;
 unsigned long timeold;
-#define hallPin 12
+
+//set up for calcs
+int setpointMax = 599;
+int setpointMin = 152;
+int neutral = 374;
+int posAccel = 5;
+int negAccel = 15;
+int negAccelHard = 25;
+int deadbandMin = 360;
+int deadbandMax = 380;
+int brakeSetPt = 175;
+bool coast = false;
+bool control = false;
+bool brake = false;
+bool go = false;
+bool movement = false;
+bool stationary = false;
+bool softBrake = false;
+bool hardBrake = false;
+bool hasBeenSoft = false;
+//int 12bit = 4096;
+//int 10bit = 1024;
 
 void setup() 
-{
-  //hall
-  attachInterrupt(digitalPinToInterrupt(hallPin), magnet_detect, RISING);//Initialize the intterrupt pin (Arduino digital pin 2)
+{  
+  //serial coms to logger
+  Serial1.begin(115200);
+  Serial.begin(115200); delay(100);
+  pinMode(LED, OUTPUT);
+  
+  //hall setup area 
+  pinMode(hallPin,INPUT_PULLUP);
+  attachInterrupt(digitalPinToInterrupt(hallPin), magnet_detect, RISING);
   half_revolutions = 0;
   rpm = 0;
   timeold = 0;
@@ -49,37 +80,21 @@ void setup()
   pwm.begin();
   pwm.setPWMFreq(60);  // Analog servos run at ~60 Hz updates
   
-  pinMode(LED, OUTPUT);     
   pinMode(RFM95_RST, OUTPUT);
   digitalWrite(RFM95_RST, HIGH);
-
-  //while (!Serial);
-  Serial.begin(115200);
-  delay(100);
-
-  Serial.println("Feather LoRa RX Test!");
   
   // manual reset
-  digitalWrite(RFM95_RST, LOW);
-  delay(10);
-  digitalWrite(RFM95_RST, HIGH);
-  delay(10);
+  digitalWrite(RFM95_RST, LOW); delay(10);
+  digitalWrite(RFM95_RST, HIGH); delay(10);
 
-  while (!rf95.init()) {
-    Serial.println("LoRa radio init failed");
-    while (1);
-  }
+  while (!rf95.init()) {Serial.println("LoRa radio init failed"); while (1);}
   Serial.println("LoRa radio init OK!");
 
   // Defaults after init are 434.0MHz, modulation GFSK_Rb250Fd250, +13dbM
-  if (!rf95.setFrequency(RF95_FREQ)) {
-    Serial.println("setFrequency failed");
-    while (1);
-  }
+  if (!rf95.setFrequency(RF95_FREQ)) {Serial.println("setFrequency failed"); while (1);}
   Serial.print("Set Freq to: "); Serial.println(RF95_FREQ);
 
   // Defaults after init are 434.0MHz, 13dBm, Bw = 125 kHz, Cr = 4/5, Sf = 128chips/symbol, CRC on
-
   // The default transmitter power is 13dBm, using PA_BOOST.
   // If you are using RFM95/96/97/98 modules which uses the PA_BOOST transmitter pin, then 
   // you can set transmitter powers from 5 to 23 dBm:
@@ -88,6 +103,8 @@ void setup()
   strip.begin();
   strip.setBrightness(32);
   strip.show();
+
+  analogReadResolution(12);
 }
 
 
@@ -98,9 +115,10 @@ int command = 0;
 
 void loop()
 {
+  digitalWrite(LED, LOW);
   if (rf95.available())
   {
-    //hall
+    //hall 0Vel reset
     if (millis()-updateTime > 200){
       rpm = 0;
     }
@@ -144,68 +162,120 @@ void loop()
       int numsConvert = nums.toInt();
       uint16_t setpoint = numsConvert;
 
-      //from controller servo min = 150 max = 595 mid = 390
-      //current rpm range 0::10,500
-
-      //compare rpm to setpoint
-      int rpmConvert = map(rpm,0,10500,374,599);
-
-      //make states (2) command and no command
-      //sub states control (brake and go) Coast (movement and stationary)
-      //deadband from controller set here
-      int deadbandMin = 360;
-      int deadbandMax = 380;
-      bool coast = false;
-      bool control = false;
-      bool brake = false;
-      bool go = false;
-      bool movement = false;
-      bool stationary = false;
-
-      if (setpoint >= deadbandMin && setpoint <= deadbandMax) {coast = true; control = false;}
-      if (setpoint < deadbandMin || setpoint > deadbandMax) {coast = false; control = true;}
+      //from controller servo min = 150 max = 599 mid = 390 current rpm range 0::10,500
+      int rpmConvert = map(rpm,0,10500,neutral,setpointMax);
+      if (setpoint >= deadbandMin && setpoint <= deadbandMax && setpoint != 0) {coast = true; control = false;}
+      if (setpoint < deadbandMin || setpoint > deadbandMax && setpoint != 0) {coast = false; control = true;}
       if (control && not coast) {
         if (setpoint > deadbandMax) {go = true; brake = false;}
         if (setpoint < deadbandMin) {go = false; brake = true;}
       }
-      int range = 2;
+
+      /*now we know coast, control, go, brake*/
+
+      if (brake && setpoint < brakeSetPt){softBrake = false; hardBrake = true;}
+      if (brake && setpoint >= brakeSetPt){softBrake = true; hardBrake = false;}
+      if (go) {softBrake = false; hardBrake = false;}
+
+      /*now we know hard and soft brake*/
+     
+      int range = 2; //to set a soft coast deadband control range 
       if (not control && coast){
-        if (rpmConvert > 374+range) {movement = true; stationary = false;}
-        if (rpmConvert <= 374+range) {movement = false; stationary = true;}
+        if (rpmConvert > neutral+range) {movement = true; stationary = false;}
+        if (rpmConvert <= neutral+range) {movement = false; stationary = true;}
       }
 
-      Serial.print("control ");Serial.print('\t');Serial.print(control);Serial.print('\t');
-      Serial.print(" coast ");Serial.print('\t');Serial.print(coast);Serial.print('\t');
-      Serial.print(" brake ");Serial.print('\t');Serial.print(brake);Serial.print('\t');
-      Serial.print(" go ");Serial.print('\t');Serial.print(go);Serial.print('\t');
-      Serial.print(" Move ");Serial.print('\t');Serial.print(movement);Serial.print('\t');
-      Serial.print(" Stationary ");Serial.print('\t');Serial.print(stationary);
-    
+      /*now we know board status (movement and stationary)*/
+       
       int error = setpoint - rpmConvert;
 
-      if (coast){command = rpmConvert;}
-      if (go){
-        if (command < setpoint){command = command +5;}
-        if (command >= setpoint) {command = setpoint;}
+      if (coast){command = rpmConvert; hasBeenSoft = false; softBrake = false; hardBrake = false; brake = false; go = false;}
+      if (control && go){
+        hasBeenSoft = false; //resets the desired flag for soft braking
+        if (command < setpoint){command = command + posAccel;} //if the setpoint is above the vehicle command rpm
+        if (command >= setpoint) {command = setpoint;} //if setpoint falls below the vehicle command rpm
+        if (command >= setpointMax) {command = setpointMax;} //clamp the value below the maximum
       }
-      if (brake) {command = setpoint;}
 
-      Serial.print('\t');Serial.print(command);Serial.print('\t');Serial.print(setpoint);Serial.print('\t');Serial.println(error);
+      /*now we have a value for control in go mode and coast mode*/ 
+      
+      if (control && hardBrake) {
+        if (not hasBeenSoft) {command = neutral; hasBeenSoft = true;}
+        if (command <= setpoint) {command = setpoint;} //for overflow command calcs and setpoint value clamping
+        if (command > setpoint) {command = command - negAccelHard;}
+      }
+      if (control && softBrake) {
+        if (not hasBeenSoft) {command = neutral; hasBeenSoft = true;}
+        if (command <= setpoint) {command = setpoint;} //for overflow command calcs and setpoint value clamping
+        if (command > setpoint) {command = command - negAccel;}
+      }
+
+      /*now we have a value for control in hard and soft barking mode*/
+      
+      if (setpoint == 0){control = true; command = 152;} //for the e-brake
+
+      /*now we have a value for the e-brake*/
+
+      String header = "$MSR";
+      String hControl = "%C";
+      String hCoast = "%O";
+      String hBrake = "%B";
+      String hSBrake = "%S";
+      String hHBrake = "%H";
+      String hGo = "%G";
+      String hMove = "%M";
+      String hSation = "%T";
+      String hCommand = "$D";
+      String hSet = "%E";
+      String hErr = "%R";
+      String hRpm = "%P";
+
+      String TXpre=
+             hControl+control+','+
+             hCoast+coast+','+
+             hBrake+brake+','+
+             hSBrake+softBrake+','+
+             hHBrake+hardBrake+','+
+             hGo+go+','+
+             hMove+movement+','+
+             hSation+stationary+','+
+             hCommand+command+','+
+             hSet+setpoint+','+
+             hErr+error+','+
+             hRpm+rpmConvert;
+
+      int sLen = TXpre.length();
+      String TX = header+','+sLen+'|'+TXpre;
+      Serial1.println(TX);
+
+      /*
+      //Serial print the results of all vehicle states and measured, calculated, and commanded values
+      Serial.print("control: ")    ;Serial.print(control);
+      Serial.print("\t coast: ")   ;Serial.print(coast);
+      Serial.print("\t brake: ")   ;Serial.print(brake);
+      Serial.print("\t Sbrake: ")  ;Serial.print(softBrake);
+      Serial.print("\t Hbrake: ")  ;Serial.print(hardBrake);
+      Serial.print("\t hbs: ")     ;Serial.print(hasBeenSoft);
+      Serial.print("\t go: ")      ;Serial.print(go);
+      Serial.print("\t Move: ")    ;Serial.print(movement);
+      Serial.print("\t Station: ") ;Serial.print(stationary);
+      Serial.print("\t cmd: ")     ;Serial.print(command);
+      Serial.print("\t set: ")     ;Serial.print(setpoint);
+      Serial.print("\t Err: ")     ;Serial.print(error);
+      Serial.print("\t rpm: ")     ;Serial.println(rpmConvert);
+      */
       
       if (control){pwm.setPWM(servonum, 0, command);}
-      if (coast) {pwm.setPWM(servonum, 0, 374);}
+      if (coast) {pwm.setPWM(servonum, 0, neutral);}
  
-      //Serial.print("RSSI: ");
-      //Serial.println(rf95.lastRssi(), DEC);
-      //delay(10);
+      //Serial.print("RSSI: "); Serial.println(rf95.lastRssi(), DEC); delay(10);
+      
       // Send a reply
-      //delay(200); // may or may not be needed
       char data[20] = "B0#     ";
       itoa(rpmConvert,data+4,10);
       rf95.send((uint8_t *)data, 20);
-      //rf95.waitPacketSent();
-      //Serial.println("Sent a reply");
-      digitalWrite(LED, LOW);
+      //rf95.waitPacketSent(); Serial.println("Sent a reply");
+      //digitalWrite(LED, LOW);
     }
     else
     {
