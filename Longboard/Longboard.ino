@@ -63,12 +63,17 @@ bool hasBeenSoft = false;
 //int 12bit = 4096;
 //int 10bit = 1024;
 
+//for stringBuilding
+String inputString = "";         // a String to hold incoming data
+bool stringComplete = false;  // whether the string is complete
+
 void setup() 
 {  
   //serial coms to logger
+  Serial.begin(115200); 
   Serial1.begin(115200);
-  Serial.begin(115200); delay(100);
   pinMode(LED, OUTPUT);
+  delay(100);
   
   //hall setup area 
   pinMode(hallPin,INPUT_PULLUP);
@@ -112,9 +117,36 @@ uint16_t i;
 uint32_t elapsed, t, startTime = micros();
 long int updateTime = 0;
 int command = 0;
-
+String holder = "";
 void loop()
 {
+  
+  //from slave
+  if (Serial1.available()) {
+    char inChar = (char)Serial1.read();
+    inputString += inChar;
+    //Serial.print(inChar);
+    // if the incoming character is a newline, set a flag so the main loop can
+    if (inChar == '\n') {stringComplete = true;}
+  }
+  if (stringComplete) {
+    if (inputString.substring(0,5) == "$MSRS"){
+      int pipeLoc = (inputString.indexOf('|'));
+      int check = inputString.substring(6,pipeLoc).toInt();
+      int measured = (inputString.length()-pipeLoc-1);
+
+      //Serial.print(check);Serial.println(measured);
+      
+      if (measured == check){
+        holder = inputString;
+      }
+    }
+    // clear the string:
+    inputString = "";
+    stringComplete = false;
+  }
+  
+  //from radio
   digitalWrite(LED, LOW);
   if (rf95.available())
   {
@@ -132,7 +164,6 @@ void loop()
     // Should be a message for us now   
     uint8_t buf[RH_RF95_MAX_MESSAGE_LEN];
     uint8_t len = sizeof(buf);
-    
     if (rf95.recv(buf, &len))
     {
       /*
@@ -216,7 +247,7 @@ void loop()
 
       /*now we have a value for the e-brake*/
 
-      String header = "$MSR";
+      String header = "$MSRR";
       String hControl = "%C";
       String hCoast = "%O";
       String hBrake = "%B";
@@ -247,6 +278,7 @@ void loop()
       int sLen = TXpre.length();
       String TX = header+','+sLen+'|'+TXpre;
       Serial1.println(TX);
+      //Serial.println(TX);
 
       /*
       //Serial print the results of all vehicle states and measured, calculated, and commanded values
@@ -269,19 +301,30 @@ void loop()
       if (coast) {pwm.setPWM(servonum, 0, neutral);}
  
       //Serial.print("RSSI: "); Serial.println(rf95.lastRssi(), DEC); delay(10);
-      
+
       // Send a reply
       char data[20] = "B0#     ";
       itoa(rpmConvert,data+4,10);
       rf95.send((uint8_t *)data, 20);
       //rf95.waitPacketSent(); Serial.println("Sent a reply");
       //digitalWrite(LED, LOW);
+
+      /*
+      // Send a reply
+      //char data[300] = "B0#     ";
+      //itoa(rpmConvert,data+4,10);
+      const char* data = holder.c_str();
+      rf95.send((uint8_t *)data, 220);
+      //rf95.waitPacketSent(); Serial.println("Sent a reply");
+      //digitalWrite(LED, LOW);
+      */
     }
     else
     {
       Serial.println("Receive failed");
     }
   }
+  //out of radio 
 }
 
 uint32_t Wheel(byte WheelPos) {

@@ -1,3 +1,8 @@
+//for sd
+#include <SPI.h>
+#include <SD.h>
+const int chipSelect = 4;
+
 //for serial 2
 #include <Arduino.h>   // required before wiring_private.h
 #include "wiring_private.h" // pinPeripheral() function
@@ -18,23 +23,33 @@ uint32_t timer = millis();
 #include <Adafruit_BNO055.h>
 #include <utility/imumaths.h>
 Adafruit_BNO055 bno = Adafruit_BNO055(55);
- 
+
 //for stringBuilding
 String inputString = "";         // a String to hold incoming data
 bool stringComplete = false;  // whether the string is complete
-
 
 void setup() {
   Serial.begin(115200);
   Serial1.begin(115200);
   Serial2.begin(9600);
 
+  //sd card
+  Serial.print("Initializing SD card...");
+  // see if the card is present and can be initialized:
+  if (!SD.begin(chipSelect)) {
+    Serial.println("Card failed, or not present");
+    // don't do anything more:
+    //while (1);
+  }
+  if (SD.begin(chipSelect)) {
+    Serial.println("card initialized.");
+  }
+
   //gps
   GPS.begin(9600);
   GPS.sendCommand(PMTK_SET_NMEA_OUTPUT_RMCGGA);
   GPS.sendCommand(PMTK_SET_NMEA_UPDATE_1HZ); // 1 Hz update rate
   GPS.sendCommand(PGCMD_ANTENNA);
-  delay(1000);  
   GPSSerial.println(PMTK_Q_RELEASE);
   
   //bno055
@@ -53,10 +68,39 @@ void setup() {
   pinPeripheral(11, PIO_SERCOM);
 
   //string building
-  inputString.reserve(200);
+  //inputString.reserve(200);
+
 }
- 
+
+String holder = "";
+
 void loop() {
+  //bno055
+  /* Get a new sensor event */ 
+  sensors_event_t event; 
+  bno.getEvent(&event);
+  
+  //from master
+  if (Serial1.available()) {
+    char inChar = (char)Serial1.read();
+    inputString += inChar;
+    // if the incoming character is a newline, set a flag so the main loop can
+    if (inChar == '\n') {stringComplete = true;}
+  }
+  if (stringComplete) {
+    if (inputString.substring(0,5) == "$MSRR"){
+      int pipeLoc = (inputString.indexOf('|'));
+      int check = inputString.substring(6,pipeLoc).toInt();
+      int measured = (inputString.length()-pipeLoc-3);
+      if (measured == check){
+        holder = inputString.substring(pipeLoc+1,inputString.length());
+      }
+    }
+    // clear the string:
+    inputString = "";
+    stringComplete = false;
+  }
+
   //gps
   char c = GPS.read();
   //if (GPSECHO)
@@ -69,103 +113,68 @@ void loop() {
   // if millis() or timer wraps around, we'll just reset it
   if (timer > millis()) timer = millis();
 
-  //bno055
-  /* Get a new sensor event */ 
-  sensors_event_t event; 
-  bno.getEvent(&event);
-
-  //from master
-  if (Serial1.available()) {
-    char inChar = (char)Serial1.read();
-    inputString += inChar;
-    // if the incoming character is a newline, set a flag so the main loop can
-    if (inChar == '\n') {stringComplete = true;}
-  }
-  if (stringComplete) {
-    if (inputString.substring(0,4) == "$MSR"){
-      int pipeLoc = (inputString.indexOf('|'));
-      int check = inputString.substring(5,pipeLoc).toInt();
-      int measured = (inputString.length()-pipeLoc-3);
-
-      if (measured == check){
-        Serial.println(inputString);
-      }
-    }
-    // clear the string:
-    inputString = "";
-    stringComplete = false;
-  }
-
-  String header = "$MSR";
-  String hAx = "%AX"; float AX = (event.orientation.x); //accel
-  String hAy = "%AY"; float AY = (event.orientation.y); //accel
-  String hAz = "%AZ"; float AZ = (event.orientation.z); //accel 
-  String hGh = "%GH"; int GH = GPS.hour;         //hour
-  String hGm = "%GM"; int GM = GPS.minute;       //min
-  String hGs = "%GS"; int GS = GPS.seconds;      //sec
-  String hGi = "%GI"; int GI = GPS.milliseconds; //milli
-  String hGd = "%GD"; int GD = GPS.day;          //day
-  String hGo = "%GO"; int GO = GPS.month;        //month
-  String hGy = "%GY"; int GY = GPS.year;         //year
-  String hGf = "%GF"; int GF = GPS.fix;          //fix
-  String hGq = "%GQ"; int GQ = GPS.fixquality;//quality
-  String hGl = "%GL"; double GL = GPS.latitude;//lat
-  String hGg = "%GG"; double GG = GPS.longitude;//long
-  String hGp = "%GP"; float GP = GPS.speed;//speed
-  String hGt = "%GT"; float GT = GPS.altitude;//alt
-  String hGn = "%GN"; float GN = GPS.angle;//ang
-  String hGa = "%GA"; int GA = GPS.satellites;//sats
-  
-  String TXpre=
-     hAx+dtostrf(AX,+','+
-     hAy+AY+','+
-     hAz+AZ+','+
-     hGh+GH+','+
-     hGm+GM+','+
-     hGs+GS+','+
-     hGi+GI+','+
-     hGd+GD+','+
-     hGo+GO+','+
-     hGy+GY+','+
-     hGf+GF+','+
-     hGq+GQ+','+
-     hGl+GL+GPS.lat+','+
-     hGg+GG+GPS.lon+','+
-     hGp+GP+','+
-     hGt+GT+','+
-     hGn+GN+','+
-     hGa+GA;
-     
-  int sLen = TXpre.length();
-  String TX = header+','+sLen+'|'+TXpre;
-  Serial.println(TX);
-  /*
-  String TXpre=
-       hAx+event.orientation.x+','+
-       hAy+event.orientation.y+','+
-       hAz+event.orientation.z+','+
-       hGh+GPS.hour+','+
-       hGm+GPS.minute+','+
-       hGs+GPS.seconds+','+
-       hGi+GPS.milliseconds+','+
-       hGd+GPS.day+','+
-       hGo+GPS.month+','+
-       hGy+GPS.year+','+
-       hGf+GPS.fix+','+
-       hGq+GPS.fixquality+','+
-       hGl+GPS.latitude+GPS.lat+','+
-       hGg+GPS.longitude+GPS.lon+','+
-       hGp+GPS.speed+','+
-       hGt+GPS.altitude+','+
-       hGn+GPS.angle+','+
-       hGa+GPS.satellites;
-
-  int sLen = TXpre.length();
-  String TX = header+','+sLen+'|'+TXpre;
-  Serial.println(TX);
-  */
   if (millis() - timer > 200) {
+
+    String header = "$MSRS";
+    String hAx = "%AX"; float AX = (event.orientation.x); //accel
+    String AXs = String(AX,4);
+    String hAy = "%AY"; float AY = (event.orientation.y); //accel
+    String AYs = String(AY,4);
+    String hAz = "%AZ"; float AZ = (event.orientation.z); //accel 
+    String AZs = String(AZ,4); 
+    String hGh = "%GH"; int GH = GPS.hour;         //hour
+    String hGm = "%GM"; int GM = GPS.minute;       //min
+    String hGs = "%GS"; int GS = GPS.seconds;      //sec
+    String hGi = "%GI"; int GI = GPS.milliseconds; //milli
+    String hGd = "%GD"; int GD = GPS.day;          //day
+    String hGo = "%GO"; int GO = GPS.month;        //month
+    String hGy = "%GY"; int GY = GPS.year;         //year
+    String hGf = "%GF"; int GF = GPS.fix;          //fix
+    String hGq = "%GQ"; int GQ = GPS.fixquality;//quality
+    String hGl = "%GL"; double GL = GPS.latitude;//lat
+    String GLs = String(GL,6);
+    String hGg = "%GG"; double GG = GPS.longitude;//long
+    String GGs = String(GG,6);
+    String hGp = "%GP"; float GP = GPS.speed;//speed
+    String hGt = "%GT"; float GT = GPS.altitude;//alt
+    String hGn = "%GN"; float GN = GPS.angle;//ang
+    String hGa = "%GA"; int GA = GPS.satellites;//sats
+    char Glat = GPS.lat; char Glon = GPS.lon;
+    
+    String TXpre=
+       hAx+AXs+','+
+       hAy+AYs+','+
+       hAz+AZs+','+
+       hGh+GH+','+
+       hGm+GM+','+
+       hGs+GS+','+
+       hGi+GI+','+
+       hGd+GD+','+
+       hGo+GO+','+
+       hGy+GY+','+
+       hGf+GF+','+
+       hGq+GQ+','+
+       hGl+GLs+Glat+','+
+       hGg+GGs+Glon+','+
+       hGp+GP+','+
+       hGt+GT+','+
+       hGn+GN+','+
+       hGa+GA+','+holder;
+       
+    int sLen = TXpre.length();
+    String TX = header+','+sLen+'|'+TXpre;
+    Serial1.println(TX);
+        
     timer = millis(); // reset the timer
+
+    //sd card
+    File dataFile = SD.open("datalog.txt", FILE_WRITE);
+    if (dataFile) {
+      dataFile.println(TX);
+      dataFile.close();
+    }
+    
+    /*
     Serial.println("");
     Serial.print("\tX: ") ;Serial.print(AX,4);
     Serial.print("\tY: ") ;Serial.print(AY,4);
@@ -192,5 +201,6 @@ void loop() {
       Serial.print("Altitude: "); Serial.println(GT);
       Serial.print("Satellites: "); Serial.println(GA);
     }
+    */
   }
 }

@@ -102,7 +102,7 @@ void loop() {
   //data
   int xVal = analogRead(A0);
   int yVal = analogRead(A1);
-  Serial.println(xVal);
+  //Serial.println(xVal);
 
   //map x val to servo min and max
   uint16_t pulselen = map(xVal,0,1023,SERVOMIN,SERVOMAX);
@@ -166,12 +166,13 @@ void loop() {
   uint8_t len = sizeof(buf);
 
   //100
-  if (rf95.waitAvailableTimeout(80))
+  if (rf95.waitAvailableTimeout(100))
   { 
     // Should be a reply message for us now   
     if (rf95.recv(buf, &len))
     {  
-      //Serial.println((char*)buf);
+      Serial.print("hi");
+      Serial.println((char*)buf);
       digitalWrite(LED,HIGH);
     }
     else {Serial.println("Receive failed"); }
