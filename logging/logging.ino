@@ -77,8 +77,34 @@ String holder = "";
 void loop() {
   //bno055
   /* Get a new sensor event */ 
-  sensors_event_t event; 
-  bno.getEvent(&event);
+
+  /*
+  Serial.print("EULER: "); 
+  Serial.print("X: ");Serial.print(EX);
+  Serial.print(" Y: ");Serial.print(EY); 
+  Serial.print(" Z: ");Serial.print(EZ);Serial.println("");
+  Serial.print("MAGS: ");
+  Serial.print("X: ");Serial.print(MX);
+  Serial.print(" Y: ");Serial.print(MY);
+  Serial.print(" Z: ");Serial.print(MZ);Serial.println("");
+  Serial.print("GYRO: ");
+  Serial.print("X: ");Serial.print(YX);
+  Serial.print(" Y: ");Serial.print(YY);
+  Serial.print(" Z: ");Serial.print(YZ);Serial.println(""); 
+  Serial.print("ACCE: ");
+  Serial.print("X: ");Serial.print(CX);
+  Serial.print(" Y: ");Serial.print(CY);
+  Serial.print(" Z: ");Serial.print(CZ);Serial.println(""); 
+  Serial.print("line: ");
+  Serial.print("X: ");Serial.print(LX);
+  Serial.print(" Y: ");Serial.print(LY);
+  Serial.print(" Z: ");Serial.print(LZ);Serial.println(""); 
+  Serial.print("GRAV: ");
+  Serial.print("X: ");Serial.print(RX);
+  Serial.print(" Y: ");Serial.print(RY);
+  Serial.print(" Z: ");Serial.print(RZ);Serial.println(""); 
+  Serial.print(temp);Serial.println(" C");Serial.println("");
+  */
   
   //from master
   if (Serial1.available()) {
@@ -105,15 +131,41 @@ void loop() {
   char c = GPS.read();
   //if (GPSECHO)
   //  if (c) Serial.print(c);
-  if (GPS.newNMEAreceived()) {
-    GPS.lastNMEA();
-    if (!GPS.parse(GPS.lastNMEA())) // this also sets the newNMEAreceived() flag to false
-      return; // we can fail to parse a sentence in which case we should just wait for another
-  }
+  if (GPS.newNMEAreceived()) {GPS.lastNMEA();
+    if (!GPS.parse(GPS.lastNMEA())){ return; }}
+      // this also sets the newNMEAreceived() flag to false
+      // we can fail to parse a sentence in which case we should just wait for another
   // if millis() or timer wraps around, we'll just reset it
   if (timer > millis()) timer = millis();
 
   if (millis() - timer > 200) {
+    sensors_event_t event; 
+    bno.getEvent(&event);
+    imu::Vector<3> euler = bno.getVector(Adafruit_BNO055::VECTOR_EULER);
+    imu::Vector<3> mags = bno.getVector(Adafruit_BNO055::VECTOR_MAGNETOMETER);
+    imu::Vector<3> gyro = bno.getVector(Adafruit_BNO055::VECTOR_GYROSCOPE); 
+    imu::Vector<3> accel = bno.getVector(Adafruit_BNO055::VECTOR_ACCELEROMETER);
+    imu::Vector<3> line = bno.getVector(Adafruit_BNO055::VECTOR_LINEARACCEL);
+    imu::Vector<3> grav = bno.getVector(Adafruit_BNO055::VECTOR_GRAVITY);
+    String hT = "%T"; int8_t temp = bno.getTemp();
+    String hEx = "%EX"; float EX = euler.x(); 
+    String hEy = "%EY"; float EY = euler.y(); 
+    String hEz = "%EZ"; float EZ = euler.z(); 
+    String hMx = "%MX"; float MX = mags.x(); 
+    String hMy = "%MY"; float MY = mags.y(); 
+    String hMz = "%MZ"; float MZ = mags.z();
+    String hYx = "%YX"; float YX = gyro.x(); 
+    String hYy = "%YY"; float YY = gyro.y(); 
+    String hYz = "%YZ"; float YZ = gyro.z();
+    String hCx = "%CX"; float CX = accel.x(); 
+    String hCy = "%CY"; float CY = accel.y(); 
+    String hCz = "%CZ"; float CZ = accel.z();
+    String hLx = "%LX"; float LX = line.x(); 
+    String hLy = "%LY"; float LY = line.y(); 
+    String hLz = "%LZ"; float LZ = line.z();
+    String hRx = "%RX"; float RX = grav.x(); 
+    String hRy = "%RY"; float RY = grav.y(); 
+    String hRz = "%RZ"; float RZ = grav.z();
 
     String header = "$MSRS";
     String hAx = "%AX"; float AX = (event.orientation.x); //accel
@@ -141,39 +193,60 @@ void loop() {
     String hGa = "%GA"; int GA = GPS.satellites;//sats
     char Glat = GPS.lat; char Glon = GPS.lon;
     
-    String TXpre=
-       hAx+AXs+','+
-       hAy+AYs+','+
-       hAz+AZs+','+
-       hGh+GH+','+
-       hGm+GM+','+
-       hGs+GS+','+
-       hGi+GI+','+
-       hGd+GD+','+
-       hGo+GO+','+
-       hGy+GY+','+
-       hGf+GF+','+
-       hGq+GQ+','+
-       hGl+GLs+Glat+','+
-       hGg+GGs+Glon+','+
-       hGp+GP+','+
-       hGt+GT+','+
-       hGn+GN+','+
-       hGa+GA+','+holder;
-       
+    String BNO=
+      hEx+EX+','+
+      hEy+EY+','+
+      hEz+EZ+','+
+      hMx+MX+','+
+      hMy+MY+','+
+      hMz+MZ+','+
+      hYx+YX+','+
+      hYy+YY+','+
+      hYz+YZ+','+
+      hCx+CX+','+
+      hCy+CY+','+
+      hCz+CZ+','+
+      hLx+LX+','+
+      hLy+LY+','+
+      hLz+LZ+','+
+      hRx+RX+','+
+      hRy+RY+','+
+      hRz+RZ+','+
+      hT+temp+','+
+      hAx+AXs+','+
+      hAy+AYs+','+
+      hAz+AZs+',';
+    String GPS=
+      hGh+GH+','+
+      hGm+GM+','+
+      hGs+GS+','+
+      hGi+GI+','+
+      hGd+GD+','+
+      hGo+GO+','+
+      hGy+GY+','+
+      hGf+GF+','+
+      hGq+GQ+','+
+      hGl+GLs+Glat+','+
+      hGg+GGs+Glon+','+
+      hGp+GP+','+
+      hGt+GT+','+
+      hGn+GN+','+
+      hGa+GA+',';
+
+    String TXpre = BNO+GPS+holder;
+     
     int sLen = TXpre.length();
     String TX = header+','+sLen+'|'+TXpre;
-    Serial1.println(TX);
+    Serial.println(TX);
+    //Serial.println(holder);
         
     timer = millis(); // reset the timer
 
     //sd card
-    File dataFile = SD.open("datalog.txt", FILE_WRITE);
-    if (dataFile) {
-      dataFile.println(TX);
-      dataFile.close();
-    }
-    
+    File dataFile = SD.open("datalog3.txt", FILE_WRITE);
+    dataFile.println(TX);
+    dataFile.close();
+        
     /*
     Serial.println("");
     Serial.print("\tX: ") ;Serial.print(AX,4);
